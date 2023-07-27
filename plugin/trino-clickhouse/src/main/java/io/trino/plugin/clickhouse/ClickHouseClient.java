@@ -14,6 +14,7 @@
 package io.trino.plugin.clickhouse;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.trino.plugin.base.expression.AggregateFunctionRewriter;
 import io.trino.plugin.base.expression.AggregateFunctionRule;
@@ -24,9 +25,11 @@ import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
 import io.trino.plugin.jdbc.JdbcJoinCondition;
+import io.trino.plugin.jdbc.JdbcSplit;
 import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
 import io.trino.plugin.jdbc.PreparedQuery;
+import io.trino.plugin.jdbc.QueryBuilder;
 import io.trino.plugin.jdbc.RemoteTableName;
 import io.trino.plugin.jdbc.SliceWriteFunction;
 import io.trino.plugin.jdbc.WriteMapping;
@@ -60,6 +63,7 @@ import javax.inject.Inject;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -128,6 +132,7 @@ public class ClickHouseClient
     static final int CLICKHOUSE_MAX_DECIMAL_PRECISION = 76;
 
     private final boolean mapStringAsVarchar;
+    private final long queryCacheMaximumSize;
     private final AggregateFunctionRewriter<JdbcExpression> aggregateFunctionRewriter;
     private final Type uuidType;
 
@@ -143,6 +148,7 @@ public class ClickHouseClient
         this.uuidType = typeManager.getType(new TypeSignature(StandardTypes.UUID));
         // TODO (https://github.com/trinodb/trino/issues/7102) define session property
         this.mapStringAsVarchar = clickHouseConfig.isMapStringAsVarchar();
+        this.queryCacheMaximumSize = clickHouseConfig.getQueryCacheMaximumSize();
         JdbcTypeHandle bigintTypeHandle = new JdbcTypeHandle(Types.BIGINT, Optional.of("bigint"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         this.aggregateFunctionRewriter = new AggregateFunctionRewriter<>(
                 this::quoted,
@@ -252,6 +258,25 @@ public class ClickHouseClient
         catch (SQLException e) {
             throw new TrinoException(JDBC_ERROR, e);
         }
+    }
+
+    @Override
+    public PreparedStatement buildSql(ConnectorSession session, Connection connection, JdbcSplit split, JdbcTableHandle table, List<JdbcColumnHandle> columns)
+            throws SQLException
+    {
+        if (!table.getLimit().isPresent()) {
+            table = new JdbcTableHandle(
+                    table.getRelationHandle(),
+                    table.getConstraint(),
+                    table.getSortOrder(),
+                    OptionalLong.of(queryCacheMaximumSize),
+                    table.getColumns(),
+                    table.getOtherReferencedTables(),
+                    table.getNextSyntheticColumnId());
+        }
+
+        PreparedQuery preparedQuery = prepareQuery(session, connection, table, Optional.empty(), columns, ImmutableMap.of(), Optional.of(split));
+        return new QueryBuilder(this).prepareStatement(session, connection, preparedQuery);
     }
 
     @Override

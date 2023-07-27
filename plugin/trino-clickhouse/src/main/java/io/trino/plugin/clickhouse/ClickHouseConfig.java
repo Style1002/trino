@@ -20,10 +20,16 @@ public class ClickHouseConfig
 {
     // TODO (https://github.com/trinodb/trino/issues/7102) reconsider default behavior
     private boolean mapStringAsVarchar;
+    private long queryCacheMaximumSize = 10000;
 
     public boolean isMapStringAsVarchar()
     {
         return mapStringAsVarchar;
+    }
+
+    public long getQueryCacheMaximumSize()
+    {
+        return queryCacheMaximumSize;
     }
 
     @Config("clickhouse.map-string-as-varchar")
@@ -31,6 +37,14 @@ public class ClickHouseConfig
     public ClickHouseConfig setMapStringAsVarchar(boolean mapStringAsVarchar)
     {
         this.mapStringAsVarchar = mapStringAsVarchar;
+        return this;
+    }
+
+    @Config("query.cache-maximum-size")
+    @ConfigDescription("Maximum number of rows in a single query")
+    public ClickHouseConfig setQueryCacheMaximumSize(long queryCacheMaximumSize)
+    {
+        this.queryCacheMaximumSize = queryCacheMaximumSize;
         return this;
     }
 }
